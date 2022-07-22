@@ -31,10 +31,6 @@ while [[ $# -ge 1 ]]; do
       OUT=true
       shift
       ;;
-    -detail )
-      DETAIL=true
-      shift
-      ;;
     -debug )
       DEBUG=true
       shift
@@ -51,32 +47,12 @@ while [[ $# -ge 1 ]]; do
       ID=$2
       shift 2
       ;;
-    -qid )
-      QID=$2
-      shift 2
-      ;;
-    -cid )
-      CID=$2
-      shift 2
-      ;;
-    -fid )
-      FID=$2
-      shift 2
-      ;;
-    -dir )
-      DIRECTION=$2
-      shift 2
-      ;;
     -dev )
       DEV=$2
       shift 2
       ;;
     -port )
       PORT=$2
-      shift 2
-      ;;
-    -speed )
-      SPEED=$2
       shift 2
       ;;
     -max )
@@ -89,27 +65,17 @@ while [[ $# -ge 1 ]]; do
       ;;
     -h )
       echo "-install"
-      echo "-add             ex: -add qdisc"
       echo "-add             ex: -add rule -port 8080 -max 1024"
       echo "-del             ex: -del rule -id 3"
-
-
-      echo "-del             ex: -del rule -id 3"
-      echo "                 qdisc : root handle 1:0 htb default 10"
-      echo "                 class : root handle 1:0 htb default 10"
-      echo "id               rule id  default 1"
-      echo "qid              default 1"
-      echo "cid              default 1"
-      echo "fid              default 1"
-      echo "-del             qdisc | class | filter"
-      echo "                 -del qdisc  delete qdisc root"
-      echo "-list            list config"
+      echo "-id              rule id  default 1"
+      echo "-list            list rule"
       echo "-dev             Network Interface Card;  Default: First NIC"
-      echo "-dir             IN | OUT "
+      echo "-in              IN"
+      echo "-out             OUT "
       echo "-port            port"
       echo "-max             max speed kb; 128=1M 256=2M 512=4M 1024=8M 1280=10M 2048 16M 2560=20M"
       echo "-min             default = max"
-      echo "-speed           kb"
+      echo "-show            show command"
       echo "-h               help info"
       shift
       exit 0
@@ -126,22 +92,11 @@ if [ "$DEV" == "" ];then
   DEV=$(ifconfig  | grep UP -m 1 | awk -F":" '{print $1}')
 fi
 
-if [ "$QID" == "" ];then
-  QID=1
-fi
-
-if [ "$CID" == "" ];then
-  CID=1
-fi
-
-if [ "$FID" == "" ];then
-  FID=1
-fi
 if [ "$MAX" == "" ];then
     MAX=1024
 fi
 
-if [ "$MINS" == "" ];then
+if [ "$MIN" == "" ];then
     MIN=$MAX
 fi
 
@@ -156,60 +111,51 @@ fi
 
 if [ "$UNINSTALL" == "true" ];then
   # root handle must be 1:0
-  cmd="tc qdisc del dev "$DEV" root"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
+  qdiscInfo=$(tc qdisc show dev "$DEV" | grep htb)
+  if [ "$qdiscInfo" != "" ];then
+    cmd="tc qdisc del dev $DEV root"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
   fi
-  $cmd
-  cmd="tc qdisc del dev "$DEV" ingress"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-  fi
-  $cmd
 
-  DEV=ifb0
-  cmd="tc qdisc del dev "$DEV" root"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-  fi
-  $cmd
+  qdiscIngressInfo=$(tc qdisc show dev "$DEV" | grep ingress)
+  if [ "$qdiscIngressInfo" != "" ];then
+    cmd="tc qdisc del dev $DEV ingress"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
 
-   cmd="ip link set dev ifb0 down"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-  fi
-  $cmd
-fi
+    DEV=ifb0
+    cmd="tc qdisc del dev $DEV root"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
 
+    cmd="tc qdisc del dev $DEV ingres"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
 
-if [ "$ADD" == "qdisc" ];then
-  # root handle must be 1:0
-  cmd="tc qdisc add dev "$DEV" root handle $QID:0 htb"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-    exit 0
-  fi
-  $cmd
-fi
+    cmd="ip link set dev ifb0 down"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
 
-if [ "$ADD" == "class" ];then
-  cmd="tc class add dev "$DEV" parent $QID:0 classid 1:$CID htb rate "$MIN"kbps ceil "$MAX"kbps"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-    exit 0
-  fi
-  $cmd
-fi
-
-
-if [ "$ADD" == "filter" ];then
-   cmd="tc filter add dev "$DEV" parent 1:0 prio 1 protocol ip u32 match ip sport $PORT 0xffff flowid 1:$ID"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-  else
-     $cmd
+    cmd="modprobe -r ifb"
+    if [ "$SHOW" == "true" ];then
+      echo CMD : "$cmd"
+    fi
+    $cmd
   fi
 fi
+
+
 
 if [ "$ADD" == "rule" ];then
 
@@ -217,7 +163,6 @@ if [ "$ADD" == "rule" ];then
     if [ "$DEBUG" == "true" ];then
       echo "is OUT"
     fi
-    DIRECTION=sport
 
     # check root
     qdiscInfo=$(tc qdisc show dev $DEV | grep htb)
@@ -228,15 +173,13 @@ if [ "$ADD" == "rule" ];then
       fi
       $cmd
     fi
-
+    DIRECTION=sport
   fi
 
   if [ "$IN" == "true" ];then
     if [ "$DEBUG" == "true" ];then
       echo "is IN"
     fi
-    DEV=ifb0
-    DIRECTION=dport
 
     # check ingress
     qdiscIngressInfo=$(tc qdisc show dev $DEV | grep ingress)
@@ -247,11 +190,16 @@ if [ "$ADD" == "rule" ];then
       fi
       $cmd
 
+      sleep 1
+
+      DEV=ifb0
       cmd="modprobe ifb"
       if [ "$SHOW" == "true" ];then
         echo CMD : "$cmd"
       fi
       $cmd
+
+      sleep 1
 
       # start dev ifb0
       if [ "$DEBUG" == "true" ];then
@@ -262,6 +210,8 @@ if [ "$ADD" == "rule" ];then
         echo CMD : "$cmd"
       fi
       $cmd
+
+      sleep 1
 
       #  redirect dev ifb0
       if [ "$DEBUG" == "true" ];then
@@ -279,6 +229,10 @@ if [ "$ADD" == "rule" ];then
       fi
       $cmd
     fi
+
+    DEV=ifb0
+    DIRECTION=dport
+
   fi
 
   cmd="tc filter show dev $DEV"
@@ -301,7 +255,7 @@ if [ "$ADD" == "rule" ];then
 
   # auto generate id if id is empty
   if [ "$ID" == "" ];then
-    ID=1
+    ID=0
     cmd="tc filter show dev $DEV"
     filterInfo=$($cmd)
     filterClassIdList=($(echo "$filterInfo" | grep flowid | awk '{print $21}'))
@@ -331,35 +285,6 @@ if [ "$ADD" == "rule" ];then
      $cmd
   fi
 fi
-
-if [ "$DEL" == "qdisc" ];then
-  cmd="tc qdisc del dev "$DEV" root"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-    exit 0
-  fi
-  $cmd
-fi
-
-if [ "$DEL" == "class" ];then
-  cmd="tc class del dev $DEV parent $QID:0 classid 1:$CID"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-    exit 0
-  fi
-  $cmd
-fi
-
-# 垃圾设计  基本上没发删除指定的 filter
-if [ "$DEL" == "filter" ];then
-  cmd="tc filter del dev $DEV parent 1: protocol ip prio 1  handle 800::$ID u32"
-  if [ "$SHOW" == "true" ];then
-    echo CMD : "$cmd"
-    exit 0
-  fi
-  $cmd
-fi
-
 
 if [ "$DEL" == "rule" ];then
   if [ "$OUT" == "true" ];then
@@ -403,7 +328,6 @@ if [ "$DEL" == "rule" ];then
 fi
 
 
-
 if [ "$LIST" == "true" ];then
   echo "------------- OUT ----------------"
   qdiscInfo=$(tc qdisc show | grep htb)
@@ -445,11 +369,11 @@ if [ "$LIST" == "true" ];then
 
 
   # For Input
-  echo "------------- In ----------------"
+  echo "------------- IN ----------------"
   qdiscIngressInfo=$(tc qdisc show | grep ingress)
-#  if [ "$qdiscIngressInfo" == "" ];then
-#     exit 0
-#  fi
+  if [ "$qdiscIngressInfo" == "" ];then
+     exit 0
+  fi
 
   # default ifb0
   DEV=ifb0
